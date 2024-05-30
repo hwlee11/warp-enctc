@@ -1,4 +1,7 @@
-# PyTorch bindings for Warp-ctc
+# PyTorch bindings for Warp-enctc
+
+This repo aim to implementation [EnCTC](https://proceedings.neurips.cc/paper/2018/hash/e44fea3bec53bcea3b7513ccef5857ac-Abstract.html).
+The sources base on [ESPNet version](https://github.com/espnet/warp-ctc) [Baidu's warp-ctc](https://github.com/baidu-research/warp-ctc) source.
 
 |branch|status|
 |:-:|:-:|

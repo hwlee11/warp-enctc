@@ -24,6 +24,7 @@ class _CTC(Function):
         grads = torch.zeros(acts.size()).type_as(acts)
         minibatch_size = acts.size(1)
         costs = torch.zeros(minibatch_size).cpu()
+        entropies = torch.zeros(minibatch_size).cpu()
         loss_func(acts,
                   grads,
                   labels,
@@ -31,6 +32,7 @@ class _CTC(Function):
                   act_lens,
                   minibatch_size,
                   costs,
+                  entropies,
                   blank)
 
         if reduce:

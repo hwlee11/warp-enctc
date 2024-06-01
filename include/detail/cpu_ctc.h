@@ -17,9 +17,9 @@ template<typename ProbT>
 class CpuCTC {
 public:
     // Noncopyable
-    CpuCTC(int alphabet_size, int minibatch, void* workspace, int num_threads,
+    CpuCTC(int alphabet_size, int minibatch, float entropyWeight, void* workspace, int num_threads,
            int blank_label) :
-            alphabet_size_(alphabet_size), minibatch_(minibatch),
+            alphabet_size_(alphabet_size), minibatch_(minibatch), mEntropyWeight_(entropyWeight),
             num_threads_(num_threads), workspace_(workspace),
             blank_label_(blank_label) {
 #if defined(CTC_DISABLE_OMP) || defined(APPLE)
@@ -38,6 +38,7 @@ public:
     ctcStatus_t cost_and_grad(const ProbT* const activations,
                               ProbT *grads,
                               ProbT* costs,
+                              ProbT* entropy,
                               const int* const flat_labels,
                               const int* const label_lengths,
                               const int* const input_lengths);
@@ -45,6 +46,7 @@ public:
 
     ctcStatus_t score_forward(const ProbT* const activations,
                               ProbT* costs,
+                              ProbT* entropy,
                               const int* const flat_labels,
                               const int* const label_lengths,
                               const int* const input_lengths);
@@ -67,6 +69,7 @@ private:
         int* e_inc;
         int* s_inc;
         ProbT* output;
+        ProbT* entropy;
         int repeats;
     };
 
@@ -75,16 +78,17 @@ private:
     int num_threads_;
     int blank_label_;
     void* workspace_;
+    float mEntropyWeight_;
 
     void softmax(const ProbT* const activations, ProbT* probs,
                  const int* const input_lengths);
 
-    std::tuple<ProbT, bool>
+    std::tuple<ProbT, ProbT, bool>
             cost_and_grad_kernel(ProbT *grad, const ProbT* const probs,
                                  const int* const labels, int T, int L,
                                  int mb, size_t bytes_used);
 
-    ProbT compute_alphas(const ProbT* probs, int repeats, int S, int T,
+    std::tuple<ProbT, ProbT> compute_alphas(const ProbT* probs, int repeats, int S, int T,
                          const int* const e_inc,
                          const int* const s_inc,
                          const int* const labels,
@@ -97,7 +101,8 @@ private:
                                  const int* const labels,
                                  ProbT* alphas,
                                  ProbT* betas,
-                                 ProbT* output);
+                                 ProbT* output,
+                                 ProbT entropy);
 };
 
 template<typename ProbT>
@@ -110,16 +115,21 @@ CpuCTC<ProbT>::CpuCTC_metadata::CpuCTC_metadata(int L, int S, int T, int mb,
     alphas = reinterpret_cast<ProbT *>(static_cast<char *>(workspace) + bytes_used);
     bytes_used += sizeof(ProbT) * S * T;
     std::fill(alphas, alphas + S * T, ctc_helper::neg_inf<ProbT>());
+    
     betas = reinterpret_cast<ProbT *>(static_cast<char *>(workspace) + bytes_used);
     bytes_used += sizeof(ProbT) * S;
     std::fill(betas, betas + S, ctc_helper::neg_inf<ProbT>());
+
     labels_w_blanks = reinterpret_cast<int *>(static_cast<char *>(workspace) + bytes_used);
     bytes_used += sizeof(int) * S;
     e_inc = reinterpret_cast<int *>(static_cast<char *>(workspace) + bytes_used);
     bytes_used += sizeof(int) * S;
     s_inc = reinterpret_cast<int *>(static_cast<char *>(workspace) + bytes_used);
     bytes_used += sizeof(int) * S;
+
     output = reinterpret_cast<ProbT *>(static_cast<char *>(workspace) + bytes_used);
+    bytes_used += sizeof(ProbT) * alphabet_size;
+    entropy = reinterpret_cast<ProbT *>(static_cast<char *>(workspace) + bytes_used);
     bytes_used += sizeof(ProbT) * alphabet_size;
 
     repeats = setup_labels(labels, blank_label, L, S);
@@ -185,7 +195,7 @@ CpuCTC<ProbT>::softmax(const ProbT* const activations, ProbT* probs,
 }
 
 template<typename ProbT>
-std::tuple<ProbT, bool>
+std::tuple<ProbT, ProbT, bool>
 CpuCTC<ProbT>::cost_and_grad_kernel(ProbT *grad, const ProbT* const probs,
                                     const int* const labels,
                                     int T, int L, int mb, size_t bytes_used) {
@@ -197,10 +207,13 @@ CpuCTC<ProbT>::cost_and_grad_kernel(ProbT *grad, const ProbT* const probs,
     bool over_threshold = false;
 
     if (L + ctcm.repeats > T) {
-        return std::make_tuple(ProbT(0), over_threshold); // TODO, not right to return 0
+        return std::make_tuple(ProbT(0), ProbT(0), over_threshold); // TODO, not right to return 0
     }
 
-    ProbT llForward = compute_alphas(probs, ctcm.repeats, S, T, ctcm.e_inc,
+    ProbT llForward;
+    ProbT entropy;
+
+    std::tie(llForward, entropy) = compute_alphas(probs, ctcm.repeats, S, T, ctcm.e_inc,
                                      ctcm.s_inc, ctcm.labels_w_blanks,
                                      ctcm.alphas);
 
@@ -209,19 +222,21 @@ CpuCTC<ProbT>::cost_and_grad_kernel(ProbT *grad, const ProbT* const probs,
                                               ctcm.labels_w_blanks,
                                               ctcm.alphas,
                                               ctcm.betas,
-                                              ctcm.output);
+                                              ctcm.output,
+                                              entropy);
 
     ProbT diff = std::abs(llForward - llBackward);
     if (diff > ctc_helper::threshold) {
         over_threshold = true;
     }
 
-    return std::make_tuple(-llForward, over_threshold);
+    return std::make_tuple(-llForward, entropy, over_threshold);
 }
 
 // Computes forward probabilities
 template<typename ProbT>
-ProbT CpuCTC<ProbT>::compute_alphas(const ProbT* probs, int repeats, int S, int T,
+std::tuple<ProbT, ProbT>
+CpuCTC<ProbT>::compute_alphas(const ProbT* probs, int repeats, int S, int T,
                                     const int* const e_inc,
                                     const int* const s_inc,
                                     const int* const labels,
@@ -263,8 +278,22 @@ ProbT CpuCTC<ProbT>::compute_alphas(const ProbT* probs, int repeats, int S, int 
     for(int i = start; i < end; ++i) {
         loglike = ctc_helper::log_plus<ProbT>()(loglike, alphas[i + (T - 1) * S]);
     }
+    
+    ProbT entropy = ctc_helper::neg_inf<ProbT>();
+    //ProbT entropy_temp = ctc_helper::neg_inf<ProbT>();
+    for(int i = start; i < end; ++i) {
+        // p * log(p)
+        //std::cout << entropy << ", " << alphas[i + (T-1) * S] << std::endl;
+        entropy = ctc_helper::entropy_plus<ProbT>()(entropy, alphas[i + (T - 1) * S]);
+        //std::cout << "value check : "  << entropy << std::endl;
+        //entropy = ctc_helper::log_plus<ProbT>()(entropy, entropy_temp);
+    }
 
-    return loglike;
+    std::cout << "loglike" << loglike << std::endl;
+    std::cout << "entropy :" << entropy << std::endl;
+    entropy = (-1 * (entropy / loglike)) + loglike;
+
+    return std::make_tuple(loglike, entropy);
 }
 
 // Starting from T, we sweep backward over the alpha array computing one column
@@ -280,7 +309,8 @@ ProbT CpuCTC<ProbT>::compute_betas_and_grad(ProbT* grad, const ProbT* const prob
                                             const int* const labels,
                                             ProbT* alphas,
                                             ProbT* betas,
-                                            ProbT* output) {
+                                            ProbT* output,
+                                            ProbT entropy) {
     int start = S > 1 ? (S - 2) : 0,
             end = (T > (S / 2) + repeats) ? S : S-1;
 
@@ -377,6 +407,7 @@ ctcStatus_t
 CpuCTC<ProbT>::cost_and_grad(const ProbT* const activations,
                              ProbT *grads,
                              ProbT *costs,
+                             ProbT *entropies,
                              const int* const flat_labels,
                              const int* const label_lengths,
                              const int* const input_lengths) {
@@ -422,12 +453,14 @@ CpuCTC<ProbT>::cost_and_grad(const ProbT* const activations,
 
         bool mb_status;
 
-        std::tie(costs[mb], mb_status) =
+        std::tie(costs[mb], entropies[mb], mb_status) =
                 cost_and_grad_kernel(grads + mb * alphabet_size_,
                                      probs + mb * alphabet_size_,
                                      flat_labels + std::accumulate(label_lengths, label_lengths + mb, 0),
                                      T, L, mb,
                                      bytes_used + mb * per_minibatch_bytes);
+        std::cout << "costs : " << costs[mb] << std::endl;
+        std::cout << "entropy : " << entropies[mb] << std::endl;
     }
 
     return CTC_STATUS_SUCCESS;
@@ -436,6 +469,7 @@ CpuCTC<ProbT>::cost_and_grad(const ProbT* const activations,
 template<typename ProbT>
 ctcStatus_t CpuCTC<ProbT>::score_forward(const ProbT* const activations,
                                          ProbT* costs,
+                                         ProbT* entropies,
                                          const int* const flat_labels,
                                          const int* const label_lengths,
                                          const int* const input_lengths) {
@@ -487,9 +521,10 @@ ctcStatus_t CpuCTC<ProbT>::score_forward(const ProbT* const activations,
         if (L + ctcm.repeats > T)
             costs[mb] = ProbT(0);
         else {
-            costs[mb] = -compute_alphas(probs + mb * alphabet_size_, ctcm.repeats, S, T,
+            std::tie(costs[mb], entropies[mb]) = compute_alphas(probs + mb * alphabet_size_, ctcm.repeats, S, T,
                                         ctcm.e_inc, ctcm.s_inc, ctcm.labels_w_blanks,
                                         ctcm.alphas);
+            costs[mb] *= -1;
         }
 
     }

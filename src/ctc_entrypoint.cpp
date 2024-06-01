@@ -44,7 +44,9 @@ ctcStatus_t compute_ctc_loss(const float* const activations,
                              int alphabet_size,
                              int minibatch,
                              float *costs,
+                             float *entropy,
                              void *workspace,
+                             float entropyWeight, //
                              ctcOptions options) {
 
     if (activations == nullptr ||
@@ -54,20 +56,21 @@ ctcStatus_t compute_ctc_loss(const float* const activations,
         costs == nullptr ||
         workspace == nullptr ||
         alphabet_size <= 0 ||
+        entropyWeight > 1.0 ||
         minibatch <= 0)
         return CTC_STATUS_INVALID_VALUE;
 
     if (options.loc == CTC_CPU) {
-        CpuCTC<float> ctc(alphabet_size, minibatch, workspace, options.num_threads,
+        CpuCTC<float> ctc(alphabet_size, minibatch, entropyWeight, workspace, options.num_threads,
                           options.blank_label);
 
         if (gradients != NULL)
             return ctc.cost_and_grad(activations, gradients,
-                                     costs,
+                                     costs, entropy,
                                      flat_labels, label_lengths,
                                      input_lengths);
         else
-            return ctc.score_forward(activations, costs, flat_labels,
+            return ctc.score_forward(activations, costs, entropy, flat_labels,
                                      label_lengths, input_lengths);
     } else if (options.loc == CTC_GPU) {
 #ifdef __CUDACC__

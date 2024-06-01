@@ -58,4 +58,21 @@ struct log_plus {
     }
 };
 
+template<typename Arg1, typename Arg2 = Arg1, typename Res=Arg1>
+struct entropy_plus {
+    typedef Res result_type;
+    HOSTDEVICE
+    Res operator()(const Arg1& p1, const Arg2& p2) {
+        if (p2 == neg_inf<Arg2>())
+            return p1;
+        if (p1 == neg_inf<Arg1>()){
+            Res result = (exp(p2) * p2);
+            return result;
+        }
+        // Entropy = plogp
+        Res result = p1 + (exp(p2) * p2);
+        return result;
+    }
+};
+
 }

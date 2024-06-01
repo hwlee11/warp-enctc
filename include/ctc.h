@@ -99,7 +99,9 @@ ctcStatus_t compute_ctc_loss(const float* const activations,
                              int alphabet_size,
                              int minibatch,
                              float *costs,
+                             float *entropy,
                              void *workspace,
+                             float entropyWeight,
                              ctcOptions options);
 
 

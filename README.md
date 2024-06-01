@@ -3,6 +3,15 @@
 This repo aim to implementation [EnCTC](https://proceedings.neurips.cc/paper/2018/hash/e44fea3bec53bcea3b7513ccef5857ac-Abstract.html).
 The sources base on [ESPNet version](https://github.com/espnet/warp-ctc) [Baidu's warp-ctc](https://github.com/baidu-research/warp-ctc) source.
 
+## Project status
+| task |status|
+|:-:|:-:|
+|`cpu entropy score`|:heavy_check_mark:|
+|`cpu entropy grad`|:white_check_mark:|
+|`gpu entropy score`|:white_check_mark:|
+|`gpu entropy grade`|:white_check_mark:|
+|`pytorch binding`|:white_check_mark:|
+
 |branch|status|
 |:-:|:-:|
 |`pytorch_bindings`|[![Build Status](https://travis-ci.org/espnet/warp-ctc.svg?branch=pytorch_bindings)](https://github.com/espnet/warp-ctc/tree/pytorch_bindings)|

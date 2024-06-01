@@ -44,6 +44,8 @@ bool small_test() {
     lengths.push_back(T);
 
     float score;
+    float entropy;
+    float entropyWeight = 0.1;
 
     ctcOptions options{};
     options.loc = CTC_GPU;
@@ -65,7 +67,9 @@ bool small_test() {
                                     alphabet_size,
                                     lengths.size(),
                                     &score,
+                                    &entropy,
                                     ctc_gpu_workspace,
+                                    entropyWeight,
                                     options),
                    "Error: compute_ctc_loss in small_test");
     
@@ -162,6 +166,8 @@ bool options_test() {
     std::vector<int> lengths = {5, 5};
 
     float score[2];
+    float entropy;
+    float entropyWeight = 0.1;
 
     float *grads_gpu;
     throw_on_error(cudaMalloc(&grads_gpu, (alphabet_size * T * minibatch) * sizeof(float)),
@@ -188,7 +194,9 @@ bool options_test() {
                                     alphabet_size,
                                     lengths.size(),
                                     &score[0],
+                                    &entropy,
                                     ctc_gpu_workspace,
+                                    entropyWeight,
                                     options),
                    "Error: compute_ctc_loss in options_test");
 
@@ -272,6 +280,8 @@ bool inf_test() {
                    "cudaMalloc");
 
     float cost;
+    float entropy;
+    float entropyWeight = 0.1;
 
     ctcOptions options{};
     options.loc = CTC_GPU;
@@ -293,7 +303,9 @@ bool inf_test() {
                                     alphabet_size,
                                     lengths.size(),
                                     &cost,
+                                    &entropy,
                                     ctc_gpu_workspace,
+                                    entropyWeight,
                                     options),
                    "Error: compute_ctc_loss in inf_test");
 
@@ -346,6 +358,8 @@ float grad_check(int T, int alphabet_size,
     }
 
     std::vector<float> costs(minibatch);
+    std::vector<float> entropies(minibatch);
+    float entropyWeight = 0.1;
 
     float *grads_gpu;
     throw_on_error(cudaMalloc(&grads_gpu, acts.size() * sizeof(float)),
@@ -375,7 +389,9 @@ float grad_check(int T, int alphabet_size,
                                     alphabet_size,
                                     minibatch,
                                     costs.data(),
+                                    entropies.data(),
                                     ctc_gpu_workspace,
+                                    entropyWeight,
                                     options),
                    "Error: compute_ctc_loss (0) in grad_check");
 
@@ -398,6 +414,9 @@ float grad_check(int T, int alphabet_size,
 
         std::vector<float> costsP1(minibatch);
         std::vector<float> costsP2(minibatch);
+        std::vector<float> entropiesP1(minibatch);
+        std::vector<float> entropiesP2(minibatch);
+        float entropyWeight = 0.1;
 
         throw_on_error(compute_ctc_loss(acts_gpu, NULL,
                                         flat_labels.data(),
@@ -406,7 +425,9 @@ float grad_check(int T, int alphabet_size,
                                         alphabet_size,
                                         minibatch,
                                         costsP1.data(),
+                                        entropiesP1.data(),
                                         ctc_gpu_workspace,
+                                        entropyWeight,
                                         options),
                        "Error: compute_ctc_loss (1) in grad_check");
 
@@ -423,7 +444,9 @@ float grad_check(int T, int alphabet_size,
                                         alphabet_size,
                                         minibatch,
                                         costsP2.data(),
+                                        entropiesP2.data(),
                                         ctc_gpu_workspace,
+                                        entropyWeight,
                                         options),
                        "Error: compute_ctc_loss (2) in grad_check");
 

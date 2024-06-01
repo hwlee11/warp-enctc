@@ -7,10 +7,10 @@ The sources base on [ESPNet version](https://github.com/espnet/warp-ctc) [Baidu'
 | task |status|
 |:-:|:-:|
 |`cpu entropy score`|:heavy_check_mark:|
-|`cpu entropy grad`|:white_check_mark:|
-|`gpu entropy score`|:white_check_mark:|
-|`gpu entropy grade`|:white_check_mark:|
-|`pytorch binding`|:white_check_mark:|
+|`cpu entropy grad`|:x:|
+|`gpu entropy score`|:x:|
+|`gpu entropy grade`|:x:|
+|`pytorch binding`|:x:|
 
 |branch|status|
 |:-:|:-:|
